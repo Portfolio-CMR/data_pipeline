@@ -1,0 +1,11 @@
+EnvironmentName: prod   # Set to dev, test, or prod as needed
+DatabaseConnectionString: "your_database_connection_string"  # Use AWS Secrets Manager for production!
+GlueJobScriptBucket: "your-glue-job-script-bucket"
+GlueJobScriptPrefix: ""  # Optional - leave blank if no prefix
+
+# ARNs for existing roles, or create new roles in the template
+DataLakeOrchestratorRoleArn: arn:aws:iam::123456789012:role/my-data-lake-orchestrator-role
+GlueJobRoleArn: arn:aws:iam::123456789012:role/my-glue-job-role
+GlueCrawlerRoleArn: arn:aws:iam::123456789012:role/my-glue-crawler-role
+LandingBucketPolicyArn: arn:aws:s3:::my-landing-bucket
+CuratedBucketPolicyArn: arn:aws:s3:::my-curated-bucket

@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for an Automated AWS Data Lake
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: The environment name (e.g., dev, prod)
+  DatabaseConnectionString:
+    Type: String
+    Description: Connection string for the source database (RDS, Redshift, etc.)
+  GlueJobScriptBucket:
+    Type: String
+    Description: S3 bucket containing Glue job scripts (PySpark)
+  GlueJobScriptPrefix:
+    Type: String
+    Description: S3 prefix for Glue job scripts
+  LandingBucketArn: 
+    Type: String
+    Description: ARN of the Landing Bucket
+  CuratedBucketArn: 
+    Type: String
+    Description: ARN of the Curated Bucket
+
+Resources:
+
+  LandingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "datalake-landing-${EnvironmentName}"
+
+  LandingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref LandingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'RequireSSE'
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${LandingBucket}/*'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'AES256'
+
+  CuratedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "datalake-curated-${EnvironmentName}"
+      
+  CuratedBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CuratedBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'RequireSSE'
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${CuratedBucket}/*'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'AES256'
+
+  DataIngestionTrigger:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      Code:
+        S3Bucket: your-code-bucket
+        S3Key: data_ingestion_trigger.zip
+      Role: !GetAtt DataIngestionTriggerRole.Arn
+
+  DataIngestionTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DataIngestionTriggerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${LandingBucket}/*"
+
+  DataLakeOrchestrator:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString:
+        !Sub |
+          {
+            "Comment": "Data Lake Orchestration Workflow",
+            "StartAt": "TriggerGlueCrawler",
+            "States": {
+              "TriggerGlueCrawler": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::glue:startCrawler.sync",
+                "Parameters": {
+                  "Name": "${DataLakeCrawler}"
+                },
+                "Next": "TriggerGlueJob"
+              },
+              "TriggerGlueJob": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::glue:startJobRun.sync",
+                "Parameters": {
+                  "JobName": "${DataProcessingJob}"
+                },
+                "End": true
+              }
+            }
+          }
+      RoleArn: !GetAtt DataLakeOrchestratorRole.Arn
+
+  DataLakeOrchestratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DataLakeOrchestratorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetTable
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lakeformation:GetDataAccess
+                Resource: '*'
+
+  DataProcessingJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub "s3://${GlueJobScriptBucket}/${GlueJobScriptPrefix}/process_data.py"
+      Role: !GetAtt GlueJobRole.Arn
+      DefaultArguments:
+        "--job-bookmark-option": "job-bookmark-disable"
+        "--enable-metrics": ""
+        "--landing_bucket": !Ref LandingBucket
+        "--curated_bucket": !Ref CuratedBucket
+      GlueVersion: "3.0"
+      MaxCapacity: 10
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueJobPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref LandingBucket
+                  - !Ref CuratedBucket
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartitions
+                  - glue:CreateTable
+                  - glue:UpdateTable
+                  - glue:BatchCreatePartition
+                  - glue:BatchUpdatePartition
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  DataLakeCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      DatabaseName: !Sub "datalake_${EnvironmentName}"
+      Role: !GetAtt GlueCrawlerRole.Arn
+      Targets:
+        S3Targets:
+          - Path: !Sub "s3://${LandingBucket}/"
+
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueCrawlerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Ref LandingBucket
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:CreateTable
+                  - glue:UpdateTable
+                  - glue:BatchCreatePartition
+                  - glue:BatchUpdatePartition
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  LakeFormationPermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !GetAtt GlueJobRole.Arn
+      Resource:
+        DataLocationResource:
+          S3Resource: !Ref CuratedBucket
+      Permissions:
+        - DATA_LOCATION_ACCESS
+
+Outputs:
+  LandingBucketName:
+    Description: Name of the Landing S3 bucket
+    Value: !Ref LandingBucket
+  CuratedBucketName:
+    Description: Name of the Curated S3 bucket
+    Value: !Ref CuratedBucket
+  DataLakeOrchestratorArn:
+    Description: ARN of the Step Functions State Machine for data lake orchestration
+    Value: !Ref DataLakeOrchestrator
+  GlueJobName:
+    Description: Name of the Glue job for data processing
+    Value: !Ref DataProcessingJob
+  DataLakeCrawlerName:
+    Description: Name of the Glue Crawler for cataloging data
+    Value: !Ref DataLakeCrawler
