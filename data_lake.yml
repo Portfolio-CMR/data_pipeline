@@ -15,12 +15,6 @@ Parameters:
   GlueJobScriptPrefix:
     Type: String
     Description: S3 prefix for Glue job scripts
-  LandingBucketArn: 
-    Type: String
-    Description: ARN of the Landing Bucket
-  CuratedBucketArn: 
-    Type: String
-    Description: ARN of the Curated Bucket
 
 Resources:
 
