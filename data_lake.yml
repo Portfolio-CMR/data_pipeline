@@ -264,6 +264,67 @@ Resources:
       Permissions:
         - DATA_LOCATION_ACCESS
 
+  KinesisStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      ShardCount: 1
+      StreamName: !Sub "datalake-stream-${EnvironmentName}"
+
+  KinesisToS3Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      Code:
+        S3Bucket: your-code-bucket
+        S3Key: kinesis_to_s3.zip
+      Role: !GetAtt KinesisToS3LambdaRole.Arn
+      Environment:
+        Variables:
+          LANDING_BUCKET: !Ref LandingBucket
+
+  KinesisToS3LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: KinesisToS3Policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${LandingBucket}/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - kinesis:GetRecords
+                  - kinesis:GetShardIterator
+                  - kinesis:DescribeStream
+                  - kinesis:ListStreams
+                Resource: "*"
+
+  KinesisToS3EventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 100
+      StartingPosition: TRIM_HORIZON
+      EventSourceArn: !GetAtt KinesisStream.Arn
+      FunctionName: !GetAtt KinesisToS3Lambda.Arn
+
+
 Outputs:
   LandingBucketName:
     Description: Name of the Landing S3 bucket
@@ -280,3 +341,4 @@ Outputs:
   DataLakeCrawlerName:
     Description: Name of the Glue Crawler for cataloging data
     Value: !Ref DataLakeCrawler
+
