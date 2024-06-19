@@ -13,7 +13,6 @@ Parameters:
   DatabasePassword:
     Type: String
     NoEcho: true
-    Default: StrongPassword123!
     Description: The master password for the RDS instance
   GlueJobScriptBucket:
     Type: String
