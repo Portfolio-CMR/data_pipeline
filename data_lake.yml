@@ -6,9 +6,15 @@ Parameters:
     Type: String
     Default: dev
     Description: The environment name (e.g., dev, prod)
-  DatabaseConnectionString:
+  DatabaseUsername:
     Type: String
-    Description: Connection string for the source database (RDS, Redshift, etc.)
+    Default: admin
+    Description: The master username for the RDS instance
+  DatabasePassword:
+    Type: String
+    NoEcho: true
+    Default: StrongPassword123!
+    Description: The master password for the RDS instance
   GlueJobScriptBucket:
     Type: String
     Description: S3 bucket containing Glue job scripts (PySpark)
@@ -164,6 +170,7 @@ Resources:
         "--enable-metrics": ""
         "--landing_bucket": !Ref LandingBucket
         "--curated_bucket": !Ref CuratedBucket
+        "--database_connection_string": !Sub "postgresql://${DatabaseUsername}:${DatabasePassword}@${MyRDSInstance.Endpoint.Address}:${MyRDSInstance.Endpoint.Port}/datalake"
       GlueVersion: "3.0"
       MaxCapacity: 10
 
@@ -324,6 +331,29 @@ Resources:
       EventSourceArn: !GetAtt KinesisStream.Arn
       FunctionName: !GetAtt KinesisToS3Lambda.Arn
 
+  MyRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "datalake-db-${EnvironmentName}"
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !Ref DatabasePassword
+      DBName: datalake
+      VPCSecurityGroups:
+        - !GetAtt MyRDSSecurityGroup.GroupId
+      PubliclyAccessible: true
+
+  MyRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to RDS instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
 
 Outputs:
   LandingBucketName:
@@ -341,4 +371,9 @@ Outputs:
   DataLakeCrawlerName:
     Description: Name of the Glue Crawler for cataloging data
     Value: !Ref DataLakeCrawler
-
+  RDSInstanceEndpoint:
+    Description: Endpoint of the RDS instance
+    Value: !GetAtt MyRDSInstance.Endpoint.Address
+  RDSInstancePort:
+    Description: Port of the RDS instance
+    Value: !GetAtt MyRDSInstance.Endpoint.Port

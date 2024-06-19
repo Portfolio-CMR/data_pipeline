@@ -1,7 +1,10 @@
-EnvironmentName: prod   # Set to dev, test, or prod as needed
-DatabaseConnectionString: "your_database_connection_string"  # Use AWS Secrets Manager for production!
+EnvironmentName: "dev"   # Set to dev, test, or prod as needed
+DatabaseConnectionString: "postgresql://<username>:<password>@<endpoint>:<port>/<database_name>"  # Use AWS Secrets Manager for production!
 GlueJobScriptBucket: "your-glue-job-script-bucket"
 GlueJobScriptPrefix: ""  # Optional - leave blank if no prefix
+DatabaseUsername: "test_rds"
+DatabasePassword: "test_rds_pass_1077"
+
 
 # # ARNs for existing roles, or create new roles in the template
 # DataLakeOrchestratorRoleArn: arn:aws:iam::123456789012:role/my-data-lake-orchestrator-role
