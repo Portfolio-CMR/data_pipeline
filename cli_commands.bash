@@ -5,10 +5,19 @@ aws cloudformation validate-template --template-body file://C:/Users/colto/Deskt
 # For pub quality graphs, use aws CloudFormation Designer
 cfn-lint data_lake.yml -g
 
-# Create the CloudFormation stack
-aws cloudformation create-stack \
-    --stack-name MyDataLake \
-    --template-body file://data-lake-template.yaml \
-    --parameter-overrides file://parameters.json
 
-# Update the CloudFormation stack
+aws cloudformation create-stack \
+    --stack-name datalake-stack \
+    --template-body file://datalake-template.yaml \
+    --parameters ParameterKey=EnvironmentName,ParameterValue=dev \
+    ParameterKey=DatabaseUsername,ParameterValue=admin \
+    ParameterKey=DatabasePassword,ParameterValue=YourSecurePassword \
+    ParameterKey=GlueJobScriptBucket,ParameterValue=datalake-scripts-dev \
+    ParameterKey=GlueJobScriptPrefix,ParameterValue=scripts \
+    --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation create-stack \
+    --stack-name datalake-stack \
+    --template-body file://datalake-template.yaml \
+    --parameters file://parameters.json \
+    --capabilities CAPABILITY_NAMED_IAM

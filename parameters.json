@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "EnvironmentName",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "DatabaseUsername",
+    "ParameterValue": "test_rds"
+  },
+  {
+    "ParameterKey": "DatabasePassword",
+    "ParameterValue": "test_rds_pass_1077"
+  },
+  {
+    "ParameterKey": "GlueJobScriptBucket",
+    "ParameterValue": "your-glue-job-script-bucket"
+  },
+  {
+    "ParameterKey": "GlueJobScriptPrefix",
+    "ParameterValue": ""
+  }
+]

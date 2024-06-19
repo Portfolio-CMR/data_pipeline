@@ -16,9 +16,11 @@ Parameters:
     Description: The master password for the RDS instance
   GlueJobScriptBucket:
     Type: String
+    Default: !Sub "datalake-scripts-${EnvironmentName}"
     Description: S3 bucket containing Glue job scripts (PySpark)
   GlueJobScriptPrefix:
     Type: String
+    Default: scripts
     Description: S3 prefix for Glue job scripts
 
 Resources:
@@ -65,13 +67,95 @@ Resources:
               StringNotEquals:
                 's3:x-amz-server-side-encryption': 'AES256'
 
+  ScriptBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref GlueJobScriptBucket
+
+  ScriptBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ScriptBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'RequireSSE'
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${ScriptBucket}/*'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'AES256'
+
+  ProcessDataScript:
+    Type: AWS::S3::Object
+    Properties:
+      Bucket: !Ref ScriptBucket
+      Key: !Sub "${GlueJobScriptPrefix}/process_data.py"
+      Body: |
+        import sys
+        from awsglue.transforms import *
+        from awsglue.utils import getResolvedOptions
+        from pyspark.context import SparkContext
+        from awsglue.context import GlueContext
+        from awsglue.job import Job
+
+        args = getResolvedOptions(sys.argv, ['JOB_NAME'])
+        sc = SparkContext()
+        glueContext = GlueContext(sc)
+        spark = glueContext.spark_session
+        job = Job(glueContext)
+        job.init(args['JOB_NAME'], args)
+
+        # Placeholder script
+        print("Processing data...")
+
+        job.commit()
+
+  DataIngestionTriggerScript:
+    Type: AWS::S3::Object
+    Properties:
+      Bucket: !Ref ScriptBucket
+      Key: data_ingestion_trigger.zip
+      Body: |
+        import json
+
+        def handler(event, context):
+            print("Data ingestion triggered")
+            return {
+                'statusCode': 200,
+                'body': json.dumps('Data ingestion successful')
+            }
+
+  KinesisToS3Script:
+    Type: AWS::S3::Object
+    Properties:
+      Bucket: !Ref ScriptBucket
+      Key: kinesis_to_s3.zip
+      Body: |
+        import json
+        import boto3
+
+        s3 = boto3.client('s3')
+
+        def handler(event, context):
+            for record in event['Records']:
+                payload = record['kinesis']['data']
+                print("Decoded payload: " + payload)
+                s3.put_object(Bucket='${LandingBucket}', Key='data_from_kinesis', Body=payload)
+            return {
+                'statusCode': 200,
+                'body': json.dumps('Data processed successfully')
+            }
+
   DataIngestionTrigger:
     Type: AWS::Lambda::Function
     Properties:
       Handler: index.handler
       Runtime: python3.9
       Code:
-        S3Bucket: your-code-bucket
+        S3Bucket: !Ref ScriptBucket
         S3Key: data_ingestion_trigger.zip
       Role: !GetAtt DataIngestionTriggerRole.Arn
 
@@ -282,7 +366,7 @@ Resources:
       Handler: index.handler
       Runtime: python3.9
       Code:
-        S3Bucket: your-code-bucket
+        S3Bucket: !Ref ScriptBucket
         S3Key: kinesis_to_s3.zip
       Role: !GetAtt KinesisToS3LambdaRole.Arn
       Environment:
